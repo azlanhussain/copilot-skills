@@ -159,10 +159,19 @@ grep -q '^openqc/' <WORKTREE_FOLDER>/.gitignore || echo 'openqc/' >> <WORKTREE_F
 ```
 
 ### 2.8 Login credentials
-Ask the user:
-> "What is the dev account password for test logins?"
 
-Store as `DEV_PASSWORD`.
+First, query the DB to identify which accounts will be used as test accounts for this feature.
+Show the user the discovered accounts clearly:
+
+> "I found the following accounts that will be used for testing:
+> - `<email1>` (e.g. doctor with approved data)
+> - `<email2>` (e.g. doctor with no data)
+>
+> What is the password for these accounts in your local environment?
+> (If accounts have different passwords, please provide them one by one.)"
+
+For each unique account, ask for its password if they differ.
+Store as `DEV_PASSWORD` (or per-account if they differ).
 
 ---
 
