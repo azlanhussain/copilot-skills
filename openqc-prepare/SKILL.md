@@ -173,6 +173,29 @@ Show the user the discovered accounts clearly:
 For each unique account, ask for its password if they differ.
 Store as `DEV_PASSWORD` (or per-account if they differ).
 
+### 2.9 Verify the correct login URL (do not assume `/login` is the admin login)
+
+Many apps register **multiple login controllers under similar-looking paths** (e.g. a public/customer
+login at the bare `/login` and a separate staff/admin login at `/admin/login`), and both may render
+**identical error text** on failure — making a wrong-URL mistake look exactly like a bad-password error.
+
+Before writing `task.md`:
+```
+grep -n "login" <CONTAINER_FOLDER>/app/config/routes.php
+```
+Confirm which path actually routes to the admin/staff controller that the QC scenarios need
+(e.g. `UsersController::login()` vs `AuthenticationsController::login()`). Record the **verified**
+login URL in `task.md` (not just an assumed `/login`). If ambiguous, ask the user which login page
+the feature under test actually requires.
+
+### 2.10 Trace DB reference notes to the actual query/filter logic, not just an FK guess
+
+When writing "current state" reference notes (e.g. "record #X tied to user Y"), don't assume based on
+column naming alone — a schedule's "sales_pic_user1_id" is not necessarily the field a given filter/UI
+control actually queries against. Grep the controller/finder that powers the page under test to confirm
+which column is actually used for filtering/display, and cite that in the note. This avoids sending
+the QC run down the wrong debugging path later.
+
 ---
 
 ## Step 3 — Query the DB for real test data
@@ -286,3 +309,8 @@ Write `<WORKTREE_FOLDER>/openqc/qc-<timestamp>/task.md`:
 - **Login password and environment recorded in task.md**
 - **Non-blank options only** when counting dropdowns
 - **Sources used recorded in task.md** — for traceability
+- **Verify the login URL against `routes.php`** — never assume the bare `/login` path is the
+  admin/staff login; similarly-named controllers can share identical error text and mask a
+  wrong-URL mistake as a bad-password error
+- **Trace DB reference notes to the actual filter/query code**, not to an assumed FK column name —
+  incorrect "current state" notes send debugging in the wrong direction during `openqc-run`

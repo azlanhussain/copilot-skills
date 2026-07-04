@@ -181,6 +181,26 @@ Only continue when **all checks pass**.
 
 ---
 
+### 0.9 Confirm the login URL is the correct controller (not just any 200 response)
+
+A `/login` path returning 200 does **not** guarantee it's the admin/staff login the QC scenarios need —
+apps can register a public/customer login at the bare path and a separate admin login elsewhere (e.g.
+`/admin/login`), both rendering identical error text on failure. This can burn significant time: a wrong
+URL produces a "wrong password" symptom even with a correct password, sending debugging toward CSRF
+tokens, stale logs, or network capture red herrings instead of the real cause.
+
+Before running tests:
+```
+grep -n "login" <CONTAINER_FOLDER>/app/config/routes.php
+```
+Confirm the login URL recorded in `task.md` actually routes to the controller used by the test scenarios.
+If task.md doesn't specify one explicitly, or if login fails with a plausible-looking credentials error,
+**verify the URL before assuming the password/CSRF is wrong**. If the user reports they can log in
+manually with the same credentials, that's a strong signal the runner is hitting the wrong URL — check
+this FIRST before deeper debugging.
+
+---
+
 ## Step 1 — Parse task.md
 
 Extract all test cases with status `⬜ PENDING` or `❌ FAIL`. For each:
@@ -236,6 +256,30 @@ Write `/tmp/openqc-playwright/runner.js` tailored to parsed test cases.
 - **Wrap each test in try/catch** — one failure must not stop others
 - **Output JSON array to stdout** at end only
 
+### Common UI-behavior gotchas (verify before assuming a test failure is a real bug)
+
+These have caused false FAILs/SKIPs before — rule them out before reporting a bug:
+
+- **Calendar/date navigation:** a `?date=` query param may only set a "today" indicator, not the
+  displayed range. Many calendar widgets restore their initial view from `localStorage` (check for
+  keys like `<remember-key>-startDate`). If a date-based test seems to land on the wrong range, seed
+  `localStorage` via `page.evaluate()` **before** navigating, instead of relying on query params.
+- **CSS-hidden controls:** some buttons/checkboxes are only visible in certain UI states (e.g. a
+  "minimised sidebar" toggle) or are visually hidden by custom styling (e.g. a checkbox styled via its
+  `<label>`). Before clicking, check `.isVisible()` rather than just `.count()`, and if a click has no
+  effect, try clicking the associated `<label for="...">` instead of the input itself.
+- **Custom JS widgets (e.g. Select2) bound to custom events:** `.val(x).trigger('change')` does not fire
+  handlers bound to widget-specific events (e.g. `select2:select`). Drive the actual UI: click to open,
+  type into the search field, click the result option. If multiple matching elements exist for a
+  selector, use `.last()` or another disambiguator.
+- **Exact vs substring matching in assertions:** `text.includes(target)` can false-match on an unrelated
+  record whose label happens to contain the same substring. Prefer `startsWith()`/exact string equality
+  keyed on a stable prefix (e.g. an ID) when checking presence/absence of a specific record.
+- **Legitimate exceptions to a filter:** some records may intentionally fall outside a filter's control
+  (e.g. events with no room assigned aren't hidden by per-room checkboxes). Confirm via the app's own
+  logic/source (`extendedProps`, model flags) whether an "unaffected" record is a bug or expected
+  behavior before failing the test.
+
 ---
 
 ## Step 3 — Run Playwright
@@ -246,7 +290,7 @@ cd /tmp/openqc-playwright && node runner.js 2>/tmp/openqc-runner.log
 ```
 
 If non-zero exit, read log. Common causes:
-- Login failed → CSRF `secure` flag (Step 0.7)
+- Login failed → CSRF `secure` flag (Step 0.7) **or wrong login URL** (Step 0.9) — check both
 - Browser not found → `npx playwright install chromium`
 - 404/500 → container missing latest code, re-sync
 
@@ -326,8 +370,18 @@ Print summary table. List any failures with suggested next steps.
 
 - **headless: true** always in CLI context
 - **CSRF `secure` flag** is the most common login blocker — check it proactively
+- **Wrong login URL is a common false-positive login blocker** — if credentials look right but login
+  still fails (especially if the user reports they can log in manually), verify the URL against
+  `routes.php` (Step 0.9) before assuming CSRF/password issues
 - **Worktree sync** only needed in worktree mode — skip in single-folder mode
 - **Screenshots always taken** even on failure
 - **Blank options excluded** from dropdown counts
 - **PDF positions are template-specific** — calibrate once, reuse
 - **Login password read from task.md** — never hardcode or guess
+- **Don't trust `?date=`-style query params for calendar widgets** — check `localStorage` usage first
+- **Check `.isVisible()` before clicking**, not just `.count()` — some controls are CSS-hidden by design
+  and only clickable via an associated `<label>`
+- **Custom widgets (Select2 etc.) need real UI interaction** — `.trigger('change')` often doesn't fire
+  the app's actual event handler
+- **Use exact-match assertions (`startsWith`, ID-based) over substring `includes()`** when checking for
+  a specific record by name/label, to avoid false matches against unrelated records
