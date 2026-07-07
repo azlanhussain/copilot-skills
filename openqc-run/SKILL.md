@@ -366,6 +366,51 @@ Print summary table. List any failures with suggested next steps.
 
 ---
 
+## Step 8 — Generating a PDF version of the QC report (only if the user asks for a PDF)
+
+`task.md` itself is sometimes exported to PDF for sharing/handoff. This is separate from Step 5
+(checking PDFs the *app* generates) — this is about packaging the QC report document.
+
+### 8.1 Markdown → HTML → PDF pipeline
+```
+pandoc <task.md or task-jp.md> -f gfm -t html5 --standalone --embed-resources --resource-path=. -o /tmp/out.html
+```
+- **Always use `-f gfm`, never the default `markdown` reader.** The default reader does not treat a
+  numbered/bulleted list as breaking out of a preceding bold-label paragraph unless a blank line
+  separates them — it silently merges the list into one long paragraph with no visible bullets/numbers.
+  This produces a PDF that builds without errors but is structurally wrong (e.g. an "Actions" list
+  rendered as one long line of text). `-f gfm` parses these correctly as `<ol>`/`<li>`.
+- Inject custom print CSS before `</head>` (margins, font, page-break rules as needed).
+- Render to PDF via headless Chromium: `page.pdf({ format: 'A4', printBackground: true, margin: {...} })`.
+
+### 8.2 Always verify the PDF, don't trust a clean build log
+A pandoc/Playwright run with zero errors does **not** guarantee the layout is correct. After generating,
+verify with both:
+- Text extraction (`pdfplumber`) — confirm list items, headings, and key content are present as expected.
+- A rendered preview image at **200dpi or higher** — a 100dpi preview can make CJK/dense text look
+  garbled even when the actual PDF is fine; don't conclude a rendering defect from a low-res preview.
+
+### 8.3 If a Japanese (or other translated) PDF version is required
+
+**Translate the markdown first, then convert — never convert first and patch the PDF, and never
+translate the whole document in one pass.** This ordering matters:
+
+1. Copy the source report to a new file, e.g. `task.md` → `task-jp.md`.
+2. Translate **section by section** (not the whole document in one shot), verifying each section as you
+   go. Keep untranslated: code blocks, URLs, file paths, class/selector names, email addresses, and
+   fixed status labels (e.g. `PASS`/`FAIL`/`SKIP`).
+3. Only once `task-jp.md` is **fully** translated and reviewed, run it through the same PDF pipeline
+   (8.1) — reusing the identical pandoc/CSS/Playwright pipeline as the English version, since the
+   document structure (headings/lists/tables) is already validated and only the language differs.
+
+Why this order: doing the translation directly in markdown means the structure-sensitive `-f gfm` list
+parsing and layout are validated once and reused unchanged for every language version. Translating
+after PDF generation (or trying to patch a rendered PDF) risks re-introducing the list/line-break bug
+from 8.1 with no easy way to re-verify structure, and mixes two independent failure modes (translation
+accuracy and layout correctness) into one hard-to-debug artifact.
+
+---
+
 ## Important rules
 
 - **headless: true** always in CLI context
@@ -385,3 +430,8 @@ Print summary table. List any failures with suggested next steps.
   the app's actual event handler
 - **Use exact-match assertions (`startsWith`, ID-based) over substring `includes()`** when checking for
   a specific record by name/label, to avoid false matches against unrelated records
+- **PDF report exports use `-f gfm`, never the default markdown reader** — the default reader merges
+  lists into a preceding bold-label paragraph without a blank-line separator, breaking list rendering
+- **Translate-then-convert for translated PDF versions** — build/verify the translated `.md` file
+  section-by-section first, then run it through the already-validated PDF pipeline; never translate a
+  rendered PDF or convert before translation is complete

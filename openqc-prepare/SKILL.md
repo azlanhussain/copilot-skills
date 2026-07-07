@@ -88,12 +88,25 @@ Present this to the user before proceeding. If scope is unclear, ask one focused
 
 ## Step 2 — Pre-flight checks
 
-### 2.1 Detect environment mode
+### 2.1 Detect environment mode — standalone vs worktree
+
+Before any Playwright test can run, first determine whether the current working directory **is** the
+folder the test environment actually serves, or whether it's a **worktree** — a separate checkout that
+needs its code synced into a different target folder before testing.
+
 ```
 git worktree list
 ```
-- 1 entry → **single-folder mode**: `CONTAINER_FOLDER = WORKTREE_FOLDER = cwd`
-- 2+ entries → **worktree mode**: ask user for `CONTAINER_FOLDER`
+- **1 entry → standalone/single-folder mode**: the current folder itself is the live test environment.
+  `CONTAINER_FOLDER = WORKTREE_FOLDER = cwd`. No sync/checkers needed before testing — code here is
+  already what Vagrant/Docker serves.
+- **2+ entries → worktree mode**: the current folder is *not* the served environment. A separate
+  `CONTAINER_FOLDER` (the folder Vagrant/Docker actually runs from) must be identified — ask the user if
+  not obvious from `git worktree list` output.
+  - **Because a separate test folder is required, checkers must be run as part of getting the code
+    there** — see 2.6, which syncs the worktree into `CONTAINER_FOLDER` and runs `cs-check`/`stan`/
+    `npm build` via `~/run-checks.sh` (or the manual rsync + build fallback) *before* any Playwright
+    test is executed. Skipping this means Playwright would test stale code in `CONTAINER_FOLDER`.
 
 ### 2.2 Playwright local install + Chromium
 ```
@@ -314,3 +327,7 @@ Write `<WORKTREE_FOLDER>/openqc/qc-<timestamp>/task.md`:
   wrong-URL mistake as a bad-password error
 - **Trace DB reference notes to the actual filter/query code**, not to an assumed FK column name —
   incorrect "current state" notes send debugging in the wrong direction during `openqc-run`
+- **Determine standalone vs worktree mode before doing anything else** — a standalone folder needs no
+  sync; a worktree folder means the real test environment lives elsewhere and requires syncing code
+  plus running checkers (`cs-check`/`stan`/`npm build`) into `CONTAINER_FOLDER` before any Playwright
+  test runs, otherwise QC would validate stale code
